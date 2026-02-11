@@ -1085,7 +1085,10 @@ export default function App() {
 
         {view === 'settings' && (
           <section className="space-y-8 pb-20">
-            <h2 className="text-3xl font-bold text-stone-700">設定</h2>
+            <h2 className="text-3xl font-bold text-stone-700 flex items-end gap-3">
+              設定
+              <span className="text-xs font-mono text-stone-400 font-normal mb-1">v1.1</span>
+            </h2>
             <div className="bg-white rounded-3xl p-6 border border-stone-100 space-y-6 shadow-sm">
               <h4 className="text-xs font-bold text-stone-400 mb-4 uppercase tracking-widest">語錄管理</h4>
 
