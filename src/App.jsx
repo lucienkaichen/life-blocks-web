@@ -900,7 +900,7 @@ export default function App() {
                               <button onClick={() => detailDateInputRef.current?.showPicker()} className={`w-full h-full flex items-center justify-center gap-2 rounded-xl border text-sm transition-all ${deadline ? 'bg-rose-50 border-rose-200 text-rose-500' : 'bg-white border-stone-200 text-stone-600'}`}>
                                 <CalendarIcon size={14} /> {deadline ? formatDateShort(deadline) : "截止日"}
                               </button>
-                              <input ref={detailDateInputRef} type="date" className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" onChange={(e) => setDeadline(e.target.value)} value={deadline} />
+                              <input ref={detailDateInputRef} type="date" className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" onChange={(e) => setDeadline(e.target.value)} value={deadline ? formatDateFull(deadline) : ''} />
                             </div>
                             <button onClick={() => setEnergy('high')} className={`h-12 rounded-xl border text-sm transition-all flex items-center justify-center gap-2 ${energy === 'high' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-stone-200 text-stone-400'}`}><Zap size={14} /> 高專注</button>
                             <button onClick={() => setEnergy('low')} className={`h-12 rounded-xl border text-sm transition-all flex items-center justify-center gap-2 ${energy === 'low' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-stone-200 text-stone-400'}`}><Leaf size={14} /> 低耗能</button>
@@ -981,16 +981,37 @@ export default function App() {
                 <div className="flex items-center gap-2 px-1 cursor-pointer group" onClick={() => setIsInboxCollapsed(!isInboxCollapsed)}>
                   <div className="w-1.5 h-1.5 rounded-full bg-stone-400"></div><h3 className="text-sm font-bold text-stone-400 tracking-widest uppercase">暫存收集</h3>
                 </div>
-                {!isInboxCollapsed && <div className="grid gap-2">{tempTasks.map(task => (
-                  <div key={task.id} className="bg-white/80 border border-stone-200 rounded-xl p-3 flex flex-col justify-center shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 min-w-0 cursor-pointer flex items-center gap-2" onClick={() => handleEditTask(task)}>
-                        <TaskInfoRow title={task.title} deadline={task.deadline} energy={null} estTime={task.estTime} tagColor="bg-stone-300" note={task.note} />
-                      </div>
-                      <button onClick={() => handleDeleteTask(task.id)} className="text-stone-300 hover:text-rose-400 p-1"><Trash2 size={14} /></button>
-                    </div>
+                {!isInboxCollapsed && (
+                  <div className="grid gap-2">
+                    {tempTasks.map((task) => (
+                      <motion.div
+                        layout
+                        key={task.id}
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`bg-white/80 border border-stone-200 rounded-xl p-3 flex flex-col justify-center shadow-sm hover:shadow-md transition-all`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0 cursor-pointer flex items-center gap-2" onClick={() => handleEditTask(task)}>
+                            <TaskInfoRow
+                              title={task.title}
+                              deadline={task.deadline}
+                              energy={null}
+                              estTime={task.estTime}
+                              tagColor="bg-stone-300"
+                              note={task.note}
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white pl-2">
+                            <button onClick={() => handleEditTask(task)} className="text-xs bg-stone-100 text-stone-500 px-3 py-1 rounded-full hover:bg-stone-200 transition-colors">完善</button>
+                            <button onClick={() => handleDeleteTask(task.id)} className="text-stone-300 hover:text-rose-400 p-1"><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
                   </div>
-                ))}</div>}
+                )}
               </div>
             )}
 
@@ -1002,41 +1023,87 @@ export default function App() {
               return (
                 <div key={tag.id} className="space-y-4">
                   <div className="flex items-center gap-3 group cursor-pointer" onClick={() => setCollapsedTags({ ...collapsedTags, [tag.id]: !isCollapsed })}>
-                    <div className={`w-2 h-6 rounded-full ${tag.color}`}></div><h3 className="text-lg font-bold text-stone-600 tracking-wide">{tag.name}</h3>
+                    <div className={`w-2 h-6 rounded-full ${tag.color}`}></div>
+                    <h3 className="text-lg font-bold text-stone-600 tracking-wide">{tag.name}</h3>
+                    <div className="p-1 rounded-full text-stone-500 group-hover:bg-stone-100 transition-colors">
+                      {isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                    </div>
                   </div>
-                  {!isCollapsed && <div className="grid gap-3">
-                    {tagTasks.map(task => (
-                      <div key={task.id} className="relative group bg-white border border-stone-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-center">
-                        <div className={`absolute left-0 top-0 bottom-0 w-2 ${tag.color} opacity-40 group-hover:opacity-100 transition-opacity rounded-l-2xl`}></div>
-                        <div className="p-4 pl-6 flex flex-col gap-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4 flex-1 min-w-0">
-                              {(!task.subtasks || task.subtasks.length === 0) && <button onClick={() => initiateCompletion('main', task)} className="w-5 h-5 rounded-full border-2 border-stone-200 flex items-center justify-center hover:bg-stone-50 hover:border-rose-300 transition-all text-transparent hover:text-rose-300 flex-shrink-0"><CheckCircle2 size={14} /></button>}
-                              <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleEditTask(task)}>
-                                <TaskInfoRow title={task.title} deadline={task.deadline} energy={task.energy} estTime={task.estTime} tagColor={tag.barColor} note={task.note} />
-                              </div>
-                            </div>
-                            <button onClick={() => handleDeleteTask(task.id)} className="p-1.5 text-stone-300 hover:text-rose-400 hover:bg-rose-50 rounded-lg transition-colors"><Trash2 size={14} /></button>
-                          </div>
-                          {/* 子任務渲染 */}
-                          {task.subtasks && task.subtasks.some(s => !s.isCompleted) && (
-                            <div className="mt-2 pl-2 space-y-1.5">
-                              {task.subtasks.filter(s => !s.isCompleted).map(sub => (
-                                <div key={sub.id} className="flex flex-col text-xs bg-stone-50/80 px-3 py-2 rounded-lg border border-stone-100/50">
-                                  <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
-                                      <button onClick={() => initiateCompletion('sub', task, sub)} className="w-4 h-4 rounded-full border border-stone-300 hover:border-rose-300 flex-shrink-0"></button>
-                                      <TaskInfoRow title={sub.title} deadline={sub.deadline} energy={sub.energy} estTime={sub.time} tagColor={tag.barColor} note={sub.note} />
-                                    </div>
+
+                  {!isCollapsed && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid gap-3">
+                      {tagTasks.map((task, index) => {
+                        const hasSubtasks = task.subtasks && task.subtasks.length > 0;
+                        const activeSubtasks = hasSubtasks ? task.subtasks.filter(s => !s.isCompleted) : [];
+
+                        return (
+                          <motion.div
+                            layout
+                            key={task.id}
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            className={`relative group bg-white border border-stone-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-center ${editingId === task.id ? 'ring-2 ring-rose-100 opacity-50 pointer-events-none' : ''}`}
+                          >
+                            <div className={`absolute left-0 top-0 bottom-0 w-2 ${tag.color} opacity-40 group-hover:opacity-100 transition-opacity rounded-l-2xl`}></div>
+
+                            <div className="p-4 pl-6 flex flex-col gap-2">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-4 flex-1 min-w-0">
+                                  {!hasSubtasks && (
+                                    <button
+                                      onClick={() => initiateCompletion('main', task)}
+                                      className="w-5 h-5 rounded-full border-2 border-stone-200 flex items-center justify-center hover:bg-stone-50 hover:border-rose-300 transition-all text-transparent hover:text-rose-300 flex-shrink-0"
+                                    >
+                                      <CheckCircle2 size={14} />
+                                    </button>
+                                  )}
+
+                                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => handleEditTask(task)}>
+                                    {hasSubtasks ? (
+                                      <h4 className="text-stone-700 font-bold leading-tight truncate">{task.title}</h4>
+                                    ) : (
+                                      <TaskInfoRow
+                                        title={task.title} deadline={task.deadline} energy={task.energy}
+                                        estTime={task.estTime} tagColor={tag.barColor || 'bg-stone-300'} note={task.note}
+                                      />
+                                    )}
                                   </div>
                                 </div>
-                              ))}
+
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-white pl-2">
+                                  <button onClick={() => handleEditTask(task)} className="p-1.5 text-stone-400 hover:text-stone-600 hover:bg-stone-100 rounded-lg transition-colors"><Edit3 size={14} /></button>
+                                  <button onClick={() => handleDeleteTask(task.id)} className="p-1.5 text-stone-300 hover:text-rose-400 hover:bg-rose-50 rounded-lg transition-colors"><Trash2 size={14} /></button>
+                                </div>
+                              </div>
+
+                              {hasSubtasks && activeSubtasks.length > 0 && (
+                                <div className="mt-2 pl-2 space-y-1.5">
+                                  {activeSubtasks.map((sub, i) => (
+                                    <div key={sub.id} className={`flex flex-col text-xs bg-stone-50/80 px-3 py-2 rounded-lg border border-stone-100/50 transition-all`}>
+                                      <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0">
+                                          <button
+                                            onClick={() => initiateCompletion('sub', task, sub)}
+                                            className={`w-4 h-4 rounded-full border flex items-center justify-center transition-all flex-shrink-0 border-stone-300 hover:border-rose-300`}
+                                          ></button>
+
+                                          <TaskInfoRow
+                                            title={sub.title} deadline={sub.deadline} energy={sub.energy}
+                                            estTime={sub.time} tagColor={tag.barColor || 'bg-stone-300'} note={sub.note}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>}
+                          </motion.div>
+                        );
+                      })}
+                    </motion.div>
+                  )}
                 </div>
               );
             })}
