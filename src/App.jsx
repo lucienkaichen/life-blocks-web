@@ -338,8 +338,8 @@ export default function App() {
 
     const qQuotes = query(collection(db, 'quotes'), orderBy('createdAt', 'asc'));
     const unsubscribeQuotes = onSnapshot(qQuotes, (snapshot) => {
-      const quoteData = snapshot.docs.map(doc => doc.data().text);
-      setQuotes(quoteData.length > 0 ? quoteData : []);
+      const quoteData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setQuotes(quoteData);
     });
 
     return () => {
@@ -370,12 +370,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const effectiveQuotes = quotes.length > 0 ? quotes : DEFAULT_QUOTES;
+    const quoteTexts = quotes.length > 0
+      ? quotes.map(q => (typeof q === 'object' ? q.text : q))
+      : DEFAULT_QUOTES;
+
     if (activeQuoteMode === 'random') {
-      const randomIndex = Math.floor(Math.random() * effectiveQuotes.length);
-      setDisplayQuote(effectiveQuotes[randomIndex]);
+      const randomIndex = Math.floor(Math.random() * quoteTexts.length);
+      setDisplayQuote(quoteTexts[randomIndex]);
     } else {
-      setDisplayQuote(effectiveQuotes[currentQuoteIndex] || effectiveQuotes[0]);
+      setDisplayQuote(quoteTexts[currentQuoteIndex] || quoteTexts[0]);
     }
   }, [activeQuoteMode, currentQuoteIndex, quotes, view]);
 
@@ -626,23 +629,30 @@ export default function App() {
   const handleSaveQuote = async () => {
     if (!newQuoteText.trim()) return;
     try {
-      // 簡單實作：因為 Quotes 在 Firestore 只是文字列表比較難管理，我們改成存物件
-      // 這裡假設我們有個 'quotes' collection
-      // 但為了相容原本邏輯，這裡我們只新增。更新邏輯比較複雜因為原本是用 index
-      // 為了簡化，我們只做新增
-      await addDoc(collection(db, 'quotes'), { text: newQuoteText, createdAt: serverTimestamp() });
+      if (editingQuoteIndex !== null && quotes[editingQuoteIndex]?.id) {
+        await updateDoc(doc(db, 'quotes', quotes[editingQuoteIndex].id), { text: newQuoteText });
+      } else {
+        await addDoc(collection(db, 'quotes'), { text: newQuoteText, createdAt: serverTimestamp() });
+      }
     } catch (e) { console.error(e); }
     setNewQuoteText('');
     setEditingQuoteIndex(null);
   };
 
-  // 刪除 Quote 要透過 Query 找到 ID，這裡暫時簡化：只做新增
   const handleDeleteQuote = async (index) => {
-    // 這裡需要真實 ID，但目前 quotes state 只是 string array
-    // 如果要完整支援，需要改變 quotes state 結構
-    alert("目前版本暫時只支援新增語錄");
+    const quote = quotes[index];
+    if (quote?.id) {
+      try {
+        await deleteDoc(doc(db, 'quotes', quote.id));
+        if (currentQuoteIndex >= index && currentQuoteIndex > 0) setCurrentQuoteIndex(currentQuoteIndex - 1);
+      } catch (e) { console.error(e); }
+    }
   };
-  const handleEditQuote = (index) => { setNewQuoteText(quotes[index]); setEditingQuoteIndex(index); };
+
+  const handleEditQuote = (index) => {
+    setNewQuoteText(quotes[index].text);
+    setEditingQuoteIndex(index);
+  };
 
 
   // --- 渲染前的資料處理 ---
@@ -900,15 +910,57 @@ export default function App() {
                       ) : (
                         /* 子任務輸入界面 */
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-                          {subtasks.length > 0 && <div className="space-y-2 mb-4">{subtasks.map((sub, index) => (
-                            <div key={sub.id} className="bg-white border border-stone-100 p-2.5 rounded-lg flex items-center justify-between text-sm">
-                              {/* 這裡簡化子任務顯示邏輯，保留主要結構 */}
-                              <div className="flex-1"><TaskInfoRow title={sub.title} deadline={sub.deadline} energy={sub.energy} estTime={sub.time} tagColor="bg-stone-300" note={sub.note} /></div>
-                              <div className="flex gap-1 ml-2"><button onClick={() => removeSubtask(sub.id)} className="text-stone-300 hover:text-rose-400"><X size={14} /></button></div>
+                          {subtasks.length > 0 && (
+                            <div className="space-y-2 mb-4">
+                              {subtasks.map((sub, index) => (
+                                <div
+                                  key={sub.id}
+                                  draggable
+                                  onDragStart={() => setDraggedSubIndex(index)}
+                                  onDragOver={(e) => {
+                                    e.preventDefault();
+                                    if (draggedSubIndex !== null && draggedSubIndex !== index) {
+                                      const newSubs = [...subtasks];
+                                      const item = newSubs.splice(draggedSubIndex, 1)[0];
+                                      newSubs.splice(index, 0, item);
+                                      setSubtasks(newSubs);
+                                      setDraggedSubIndex(index);
+                                    }
+                                  }}
+                                  className="bg-white border border-stone-100 p-2.5 rounded-lg flex items-center justify-between text-sm cursor-move active:bg-stone-50"
+                                >
+                                  {editingSubtaskId === sub.id ? (
+                                    <div className="flex-1 space-y-3">
+                                      <input value={editSubTitle} onChange={(e) => setEditSubTitle(e.target.value)} className="w-full border-b border-stone-200 outline-none text-base py-1" placeholder="子任務名稱" autoFocus />
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <TimePicker value={editSubTime} onChange={setEditSubTime} disabled={false} />
+                                        <div className="relative h-12"><button className={`w-full h-full flex items-center justify-center gap-2 rounded-xl border text-sm bg-white border-stone-200 text-stone-600`}><CalendarIcon size={14} /> {editSubDeadline ? formatDateShort(editSubDeadline) : "截止日"}</button><input type="date" className="absolute inset-0 opacity-0 w-full h-full" onChange={(e) => setEditSubDeadline(e.target.value)} value={editSubDeadline} /></div>
+                                        <button onClick={() => setEditSubEnergy('high')} className={`h-12 rounded-xl border text-xs flex items-center justify-center gap-1 ${editSubEnergy === 'high' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-stone-200 text-stone-400'}`}>⚡️ 高專注</button>
+                                        <button onClick={() => setEditSubEnergy('low')} className={`h-12 rounded-xl border text-xs flex items-center justify-center gap-1 ${editSubEnergy === 'low' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-stone-200 text-stone-400'}`}>🍃 低耗能</button>
+                                      </div>
+                                      <input value={editSubNote} onChange={(e) => setEditSubNote(e.target.value)} placeholder="備註..." className="w-full px-3 h-10 rounded-lg border border-stone-200 text-xs outline-none bg-stone-50" />
+                                      <div className="flex justify-end gap-2 pt-1"><button onClick={saveEditSubtask} className="p-2 rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100"><Check size={16} /></button><button onClick={cancelEditSubtask} className="p-2 rounded-lg bg-stone-100 text-stone-500 hover:bg-stone-200"><X size={16} /></button></div>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="mr-2 text-stone-300"><GripVertical size={14} /></div>
+                                      <div className="flex-1"><TaskInfoRow title={sub.title} deadline={sub.deadline} energy={sub.energy} estTime={sub.time} tagColor="bg-stone-300" note={sub.note} /></div>
+                                      <div className="flex gap-1 ml-2"><button onClick={() => startEditSubtask(sub)} className="text-stone-300 hover:text-stone-500"><Edit3 size={14} /></button><button onClick={() => removeSubtask(sub.id)} className="text-stone-300 hover:text-rose-400"><X size={14} /></button></div>
+                                    </>
+                                  )}
+                                </div>
+                              ))}
                             </div>
-                          ))}</div>}
+                          )}
                           <div className="bg-stone-50 p-4 rounded-xl border border-stone-100 space-y-4">
                             <div className="flex gap-2"><input value={tempSubName} onChange={(e) => setTempSubName(e.target.value)} placeholder="子任務名稱" className="flex-1 px-3 h-12 rounded-xl border border-stone-200 text-sm outline-none" /><button onClick={addSubtask} disabled={!tempSubName.trim()} className="bg-stone-200 text-stone-600 px-3 h-12 rounded-xl hover:bg-stone-300 disabled:opacity-50"><Plus size={16} /></button></div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <TimePicker value={tempSubTime} onChange={(val) => setTempSubTime(val)} disabled={false} placeholder="預估時間" />
+                              <div className="relative h-12"><button onClick={() => subDateInputRef.current?.showPicker()} className={`w-full h-full bg-white border border-stone-200 rounded-xl text-xs flex items-center justify-center gap-1 ${tempSubDeadline ? 'text-rose-500' : 'text-stone-600'}`}>{tempSubDeadline ? formatDateShort(tempSubDeadline) : "截止日"}</button><input ref={subDateInputRef} type="date" className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" onChange={(e) => setTempSubDeadline(e.target.value)} value={tempSubDeadline} /></div>
+                              <button onClick={() => setTempSubEnergy('high')} className={`h-12 rounded-xl border text-xs flex items-center justify-center gap-1 ${tempSubEnergy === 'high' ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-white border-stone-200 text-stone-400'}`}>⚡️ 高專注</button>
+                              <button onClick={() => setTempSubEnergy('low')} className={`h-12 rounded-xl border text-xs flex items-center justify-center gap-1 ${tempSubEnergy === 'low' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-white border-stone-200 text-stone-400'}`}>🍃 低耗能</button>
+                            </div>
+                            <input value={tempSubNote} onChange={(e) => setTempSubNote(e.target.value)} placeholder="子任務備註..." className="w-full px-3 h-12 rounded-xl border border-stone-200 text-xs outline-none bg-white" />
                           </div>
                         </motion.div>
                       )}
@@ -1034,38 +1086,68 @@ export default function App() {
         {view === 'settings' && (
           <section className="space-y-8 pb-20">
             <h2 className="text-3xl font-bold text-stone-700">設定</h2>
-            {/* 語錄設定 */}
             <div className="bg-white rounded-3xl p-6 border border-stone-100 space-y-6 shadow-sm">
               <h4 className="text-xs font-bold text-stone-400 mb-4 uppercase tracking-widest">語錄管理</h4>
-              <div className="text-center px-4 py-8 bg-[#F9F8F6] rounded-2xl border border-stone-100 relative">
-                <textarea value={newQuoteText} onChange={(e) => setNewQuoteText(e.target.value)} className="w-full bg-transparent border-none text-center text-stone-600 font-serif text-xl focus:outline-none resize-none" placeholder="輸入新語錄..." rows={3} />
+
+              <div className="mb-8">
+                <label className="text-[10px] text-stone-400 uppercase tracking-widest mb-2 block">首頁顯示預覽 (可直接編輯)</label>
+                <div className="text-center px-4 py-8 bg-[#F9F8F6] rounded-2xl border border-stone-100 relative group">
+                  <textarea value={newQuoteText || (editingQuoteIndex !== null ? quotes[editingQuoteIndex]?.text : "")} onChange={(e) => { setNewQuoteText(e.target.value); }} className="w-full bg-transparent border-none text-center text-stone-600 font-serif leading-relaxed text-xl tracking-widest resize-none focus:outline-none" rows={3} placeholder={editingQuoteIndex !== null ? "" : "輸入新語錄"} />
+                  <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"><Eye size={16} className="text-stone-300" /></div>
+                </div>
               </div>
-              <button onClick={handleSaveQuote} disabled={!newQuoteText.trim()} className="w-full bg-stone-800 text-white px-4 py-3 rounded-xl text-sm disabled:opacity-50">新增語錄</button>
-              <div className="space-y-2 mt-4">
-                {quotes.map((q, idx) => (
-                  <div key={idx} className="text-sm text-stone-600 border-b border-stone-50 py-2">「{q}」</div>
+
+              <div className="flex gap-1 p-1 bg-stone-100 rounded-xl w-fit mb-4">
+                <button onClick={() => setActiveQuoteMode('random')} className={`px-4 py-1.5 rounded-lg text-xs transition-all flex items-center gap-2 ${activeQuoteMode === 'random' ? 'bg-white shadow-sm font-bold text-stone-800' : 'text-stone-400'}`}><RefreshCcw size={12} /> 隨機輪播</button>
+                <button onClick={() => setActiveQuoteMode('fixed')} className={`px-4 py-1.5 rounded-lg text-xs transition-all flex items-center gap-2 ${activeQuoteMode === 'fixed' ? 'bg-white shadow-sm font-bold text-stone-800' : 'text-stone-400'}`}><Check size={12} /> 指定顯示</button>
+              </div>
+
+              <div className="space-y-3">
+                {quotes.map((quote, idx) => (
+                  <div key={quote.id || idx} className="flex items-start gap-3 group">
+                    <button onClick={() => { setCurrentQuoteIndex(idx); setActiveQuoteMode('fixed'); }} className={`mt-1 w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${activeQuoteMode === 'fixed' && currentQuoteIndex === idx ? 'border-rose-300 bg-rose-50 text-rose-400' : 'border-stone-200 text-transparent'}`}><div className="w-2 h-2 rounded-full bg-current"></div></button>
+                    <p className="text-sm text-stone-600 flex-1 font-serif">「{quote.text || quote}」</p>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={() => { handleEditQuote(idx); }} className="text-stone-300 hover:text-stone-500 p-1"><Edit3 size={14} /></button>
+                      <button onClick={() => handleDeleteQuote(idx)} className="text-stone-300 hover:text-rose-400 p-1"><Trash2 size={14} /></button>
+                    </div>
+                  </div>
                 ))}
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-stone-50">
+                <button onClick={handleSaveQuote} disabled={!newQuoteText.trim()} className="w-full bg-stone-800 text-white px-4 py-3 rounded-xl text-sm disabled:opacity-50">{editingQuoteIndex !== null ? "儲存更新" : "新增為新語錄"}</button>
+                {editingQuoteIndex !== null && <button onClick={() => { setEditingQuoteIndex(null); setNewQuoteText(''); }} className="bg-stone-100 text-stone-500 px-4 rounded-xl text-sm">取消</button>}
               </div>
             </div>
 
-            {/* 標籤管理 */}
             <div className="bg-white rounded-3xl p-6 border border-stone-100 space-y-6 shadow-sm">
-              <h4 className="text-xs font-bold text-stone-400 mb-4 uppercase tracking-widest">標籤管理</h4>
-              {effectiveTags.map(tag => (
-                <div key={tag.id} className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl">
-                  <div className="flex items-center gap-3"><div className={`w-6 h-6 rounded-full ${tag.color}`}></div><span className="text-stone-700 font-medium">{tag.name}</span></div>
-                  {tag.id && <button onClick={() => handleDeleteTag(tag.id)} className="text-stone-300 hover:text-rose-400"><Trash2 size={16} /></button>}
+              <div>
+                <h4 className="text-xs font-bold text-stone-400 mb-4 uppercase tracking-widest flex items-center justify-between">標籤管理</h4>
+                <div className="grid gap-3">
+                  {effectiveTags.map(tag => (
+                    <div key={tag.id} className="flex items-center justify-between p-3 bg-stone-50 rounded-2xl group border border-transparent hover:border-stone-100 transition-all">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-6 h-6 rounded-full ${tag.color} shadow-inner`}></div>
+                        <span className="text-stone-700 font-medium">{tag.name}</span>
+                      </div>
+                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                        <button onClick={() => { setNewTagName(tag.name); setNewTagColor(tag.color); setEditingTagId(tag.id); setIsAddingTag(true); }} className="text-stone-300 hover:text-stone-600 p-2"><Edit3 size={16} /></button>
+                        {tags.length > 1 && <button onClick={() => handleDeleteTag(tag.id)} className="text-stone-300 hover:text-rose-400 p-2"><Trash2 size={16} /></button>}
+                      </div>
+                    </div>
+                  ))}
+                  {isAddingTag ? (
+                    <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="bg-white border border-stone-200 rounded-2xl p-4 space-y-4 shadow-sm">
+                      <div className="space-y-2"><label className="text-xs text-stone-400">{editingTagId ? '編輯標籤名稱' : '新標籤名稱'}</label><input type="text" value={newTagName} onChange={(e) => setNewTagName(e.target.value)} placeholder="例如：運動、閱讀..." className="w-full border-b border-stone-200 py-1 text-stone-700 focus:outline-none focus:border-stone-400" autoFocus /></div>
+                      <div className="space-y-2"><label className="text-xs text-stone-400">選擇顏色</label><div className="flex gap-2 flex-wrap">{COLOR_PALETTE.map(color => (<button key={color} onClick={() => setNewTagColor(color)} className={`w-6 h-6 rounded-full ${color} ${newTagColor === color ? 'ring-2 ring-stone-400 ring-offset-2' : ''}`} />))}</div></div>
+                      <div className="flex gap-2 pt-2"><button onClick={handleSaveTag} disabled={!newTagName.trim()} className="flex-1 bg-stone-800 text-white py-2 rounded-xl text-sm hover:bg-stone-700 disabled:opacity-50">{editingTagId ? '儲存變更' : '確認新增'}</button><button onClick={() => { setIsAddingTag(false); setEditingTagId(null); setNewTagName(''); }} className="flex-1 bg-stone-100 text-stone-500 py-2 rounded-xl text-sm hover:bg-stone-200">取消</button></div>
+                    </motion.div>
+                  ) : (
+                    <button onClick={() => { setIsAddingTag(true); setNewTagName(''); setNewTagColor(COLOR_PALETTE[0]); setEditingTagId(null); }} className="w-full py-3 border-2 border-dashed border-stone-100 rounded-2xl text-stone-400 text-sm hover:bg-stone-50 hover:border-stone-200 transition-all flex items-center justify-center gap-2 hover:text-stone-600"><Plus size={16} /> 新增標籤</button>
+                  )}
                 </div>
-              ))}
-              {isAddingTag ? (
-                <div className="bg-stone-50 p-4 rounded-xl space-y-3">
-                  <input value={newTagName} onChange={(e) => setNewTagName(e.target.value)} placeholder="標籤名稱" className="w-full p-2 rounded-lg text-sm" />
-                  <div className="flex gap-2 flex-wrap">{COLOR_PALETTE.map(c => <button key={c} onClick={() => setNewTagColor(c)} className={`w-6 h-6 rounded-full ${c} ${newTagColor === c ? 'ring-2 ring-stone-400' : ''}`}></button>)}</div>
-                  <div className="flex gap-2"><button onClick={handleSaveTag} className="flex-1 bg-stone-800 text-white py-2 rounded-lg text-sm">儲存</button><button onClick={() => setIsAddingTag(false)} className="flex-1 bg-white text-stone-500 py-2 rounded-lg text-sm">取消</button></div>
-                </div>
-              ) : (
-                <button onClick={() => setIsAddingTag(true)} className="w-full py-3 border-2 border-dashed border-stone-100 rounded-2xl text-stone-400 text-sm hover:bg-stone-50 flex items-center justify-center gap-2"><Plus size={16} /> 新增標籤</button>
-              )}
+              </div>
             </div>
           </section>
         )}
